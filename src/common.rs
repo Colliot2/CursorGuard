@@ -4,75 +4,23 @@ use std::process::{Command, Stdio};
 use std::io::{self, Write, Read};
 use std::path::Path;
 
-/// 检测当前进程是否在 Cursor 环境中
-/// 通过检查进程树中是否包含 Cursor
+/// 检测当前进程是否在 Cursor AI 执行环境中
+/// 只在 Cursor AI 执行命令时返回 true，用户手动执行返回 false
 pub fn is_in_cursor() -> bool {
-    // 方法 1: 检查环境变量
-    if let Ok(term) = env::var("TERM_PROGRAM") {
-        if term.contains("vscode") || term.contains("Cursor") {
+    // 关键检测：CURSOR_AGENT 环境变量
+    // 经过验证：只有这个变量能准确区分 AI 执行和用户手动执行
+    // - CURSOR_AGENT=1 → 只有 AI 执行时才有
+    // - CURSOR_TRACE_ID → 手动终端也有，不能用来区分
+    if let Ok(agent) = env::var("CURSOR_AGENT") {
+        if agent == "1" {
             return true;
         }
     }
     
-    if let Ok(vscode_path) = env::var("VSCODE_GIT_ASKPASS_MAIN") {
-        if vscode_path.to_lowercase().contains("cursor") {
-            return true;
-        }
-    }
-    
-    if let Ok(ipc_hook) = env::var("VSCODE_IPC_HOOK_CLI") {
-        if ipc_hook.to_lowercase().contains("cursor") {
-            return true;
-        }
-    }
-    
-    // 方法 2: 检查进程树
-    if check_process_tree_for_cursor() {
-        return true;
-    }
-    
+    // 用户手动在 Cursor 终端执行时，CURSOR_AGENT 不存在
     false
 }
 
-/// 检查进程树中是否包含 Cursor
-fn check_process_tree_for_cursor() -> bool {
-    // 获取当前进程的父进程链
-    let mut pid = std::process::id();
-    
-    for _ in 0..10 {  // 最多检查 10 层
-        if let Ok(output) = Command::new("ps")
-            .args(&["-p", &pid.to_string(), "-o", "comm="])
-            .output()
-        {
-            if let Ok(comm) = String::from_utf8(output.stdout) {
-                let comm = comm.trim().to_lowercase();
-                if comm.contains("cursor") || comm.contains("vscode") {
-                    return true;
-                }
-            }
-        }
-        
-        // 获取父进程 PID
-        if let Ok(output) = Command::new("ps")
-            .args(&["-p", &pid.to_string(), "-o", "ppid="])
-            .output()
-        {
-            if let Ok(ppid_str) = String::from_utf8(output.stdout) {
-                if let Ok(ppid) = ppid_str.trim().parse::<u32>() {
-                    if ppid <= 1 {
-                        break;
-                    }
-                    pid = ppid;
-                    continue;
-                }
-            }
-        }
-        
-        break;
-    }
-    
-    false
-}
 
 /// 生成唯一的临时文件名（确保不会覆盖现有文件）
 fn generate_unique_tmpfile(tmp_dir: &str, prefix: &str) -> String {
@@ -175,36 +123,45 @@ mod tests {
     use std::path::Path;
 
     #[test]
-    fn test_is_in_cursor_with_term_program() {
-        // 测试 TERM_PROGRAM 环境变量
+    fn test_is_in_cursor_with_cursor_agent() {
+        // 清理环境
+        std::env::remove_var("CURSOR_AGENT");
+        
+        // 测试 CURSOR_AGENT=1
+        std::env::set_var("CURSOR_AGENT", "1");
+        assert!(is_in_cursor(), "应该检测到 CURSOR_AGENT=1");
+        
+        // 清理
+        std::env::remove_var("CURSOR_AGENT");
+    }
+
+    #[test]
+    fn test_is_not_in_cursor_manual_terminal() {
+        // 清理 CURSOR_AGENT
+        std::env::remove_var("CURSOR_AGENT");
+        
+        // 即使有 CURSOR_TRACE_ID（手动终端也有），也不应该触发
+        std::env::set_var("CURSOR_TRACE_ID", "test-trace-id");
         std::env::set_var("TERM_PROGRAM", "vscode");
-        assert!(is_in_cursor(), "应该检测到 vscode");
+        assert!(!is_in_cursor(), "用户手动在 Cursor 终端执行不应该触发");
         
-        std::env::set_var("TERM_PROGRAM", "Cursor");
-        assert!(is_in_cursor(), "应该检测到 Cursor");
-        
+        // 清理
+        std::env::remove_var("CURSOR_TRACE_ID");
         std::env::remove_var("TERM_PROGRAM");
-        std::env::remove_var("VSCODE_GIT_ASKPASS_MAIN");
-        std::env::remove_var("VSCODE_IPC_HOOK_CLI");
-        // 注意：如果当前进程树中有 Cursor，这个测试可能会失败
     }
-
+    
     #[test]
-    fn test_is_in_cursor_with_vscode_path() {
-        std::env::remove_var("TERM_PROGRAM");
-        std::env::set_var("VSCODE_GIT_ASKPASS_MAIN", "/Applications/Cursor.app/Contents/MacOS/Cursor");
-        assert!(is_in_cursor(), "应该通过 VSCODE_GIT_ASKPASS_MAIN 检测到 Cursor");
+    fn test_cursor_agent_only_detection() {
+        // 验证：只有 CURSOR_AGENT=1 才会触发
+        std::env::remove_var("CURSOR_AGENT");
         
-        std::env::remove_var("VSCODE_GIT_ASKPASS_MAIN");
-    }
-
-    #[test]
-    fn test_is_in_cursor_with_ipc_hook() {
-        std::env::remove_var("TERM_PROGRAM");
-        std::env::remove_var("VSCODE_GIT_ASKPASS_MAIN");
-        std::env::set_var("VSCODE_IPC_HOOK_CLI", "/tmp/vscode-ipc-cursor-12345.sock");
-        assert!(is_in_cursor(), "应该通过 VSCODE_IPC_HOOK_CLI 检测到 Cursor");
+        // 有其他 Cursor 变量但没有 CURSOR_AGENT → 不触发
+        std::env::set_var("CURSOR_TRACE_ID", "xxx");
+        std::env::set_var("VSCODE_IPC_HOOK_CLI", "/tmp/cursor.sock");
+        assert!(!is_in_cursor(), "没有 CURSOR_AGENT=1 不应该触发");
         
+        // 清理
+        std::env::remove_var("CURSOR_TRACE_ID");
         std::env::remove_var("VSCODE_IPC_HOOK_CLI");
     }
 
