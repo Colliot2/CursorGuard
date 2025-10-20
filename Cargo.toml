@@ -1,0 +1,25 @@
+[package]
+name = "cursor_grep_wrapper"
+version = "1.0.0"
+edition = "2021"
+
+[lib]
+name = "cursor_common"
+path = "src/common.rs"
+
+[[bin]]
+name = "grep"
+path = "src/grep.rs"
+
+[[bin]]
+name = "tail"
+path = "src/tail.rs"
+
+[[bin]]
+name = "head"
+path = "src/head.rs"
+
+[dependencies]
+chrono = "0.4"
+rand = "0.8"
+atty = "0.2"
