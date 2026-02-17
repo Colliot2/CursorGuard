@@ -1,0 +1,21 @@
+name: Task
+about: Structured task for issue-driven development
+title: "[Task] "
+labels: ["kind/task", "status/triage"]
+body:
+  - type: textarea
+    id: goal
+    attributes: { label: Goal }
+    validations: { required: true }
+  - type: textarea
+    id: scope
+    attributes: { label: Scope }
+    validations: { required: true }
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance Criteria
+      value: |
+        - [ ]
+        - [ ]
+    validations: { required: true }

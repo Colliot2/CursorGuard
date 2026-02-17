@@ -1,0 +1,20 @@
+name: issue-triage
+on:
+  issues:
+    types: [opened, reopened]
+permissions:
+  issues: write
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const labels = context.payload.issue.labels.map(l => l.name);
+            const toAdd = [];
+            if (!labels.includes('status/triage')) toAdd.push('status/triage');
+            if (!labels.some(l => l.startsWith('priority/'))) toAdd.push('priority/p2');
+            if (toAdd.length) {
+              await github.rest.issues.addLabels({ owner: context.repo.owner, repo: context.repo.repo, issue_number: context.payload.issue.number, labels: toAdd });
+            }
